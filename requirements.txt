@@ -1,0 +1,4 @@
+python-telegram-bot==22.8
+requests>=2.32.3,<3
+python-dotenv>=1.0.1,<2
+Telethon>=1.40,<2
