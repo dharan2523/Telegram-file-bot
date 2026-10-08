@@ -7,3 +7,4 @@ downloads/*
 sessions/
 *.session
 *.session-journal
+telegram_session_base64.txt

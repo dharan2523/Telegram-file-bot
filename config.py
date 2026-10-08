@@ -14,6 +14,31 @@ DOWNLOAD_DIR = BASE_DIR / "downloads"
 
 MAX_UPLOAD_BYTES = 50_000_000
 MAX_STORAGE_FILE_BYTES = 2 * 1024 * 1024 * 1024
+_TELETHON_UPLOAD_PART_SIZES_KB = {32, 64, 128, 256, 512}
+
+
+def _parse_telethon_upload_part_size_kb(value: str | None) -> int:
+    if value is None or not value.strip():
+        return 512
+
+    try:
+        part_size_kb = int(value)
+    except ValueError:
+        raise ValueError(
+            "TELETHON_UPLOAD_PART_SIZE_KB must be one of 32, 64, 128, 256, or 512."
+        ) from None
+
+    if part_size_kb not in _TELETHON_UPLOAD_PART_SIZES_KB:
+        raise ValueError(
+            "TELETHON_UPLOAD_PART_SIZE_KB must be one of 32, 64, 128, 256, or 512."
+        )
+
+    return part_size_kb
+
+
+TELETHON_UPLOAD_PART_SIZE_KB = _parse_telethon_upload_part_size_kb(
+    os.getenv("TELETHON_UPLOAD_PART_SIZE_KB")
+)
 DOWNLOAD_TIMEOUT = (10, 30)
 UPLOAD_TIMEOUT = {
     "connect_timeout": 10,

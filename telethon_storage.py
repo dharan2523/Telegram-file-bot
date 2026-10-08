@@ -9,7 +9,13 @@ from telethon import TelegramClient, utils
 from telethon.tl.custom.message import Message as TelethonMessage
 from telethon.tl.types import Channel, DocumentAttributeFilename
 
-from config import API_HASH, API_ID, BASE_DIR, CHANNEL_ID
+from config import (
+    API_HASH,
+    API_ID,
+    BASE_DIR,
+    CHANNEL_ID,
+    TELETHON_UPLOAD_PART_SIZE_KB,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -198,6 +204,10 @@ class TelegramChannelStorage:
             str(file_path),
             file_size,
         )
+        logger.info(
+            "Telethon upload part size: %s KB",
+            TELETHON_UPLOAD_PART_SIZE_KB,
+        )
 
         def progress_callback(
             sent_bytes: int,
@@ -255,16 +265,21 @@ class TelegramChannelStorage:
                 last_log_time = now
 
         try:
-            # Direct upload from disk.
-            #
-            # Telethon handles the MTProto upload internally.
-            # Do not read the complete file into memory.
+            # Upload one bounded chunk at a time, then send Telethon's handle.
+            uploaded_file = await self.client.upload_file(
+                file_path,
+                part_size_kb=TELETHON_UPLOAD_PART_SIZE_KB,
+                file_size=file_size,
+                file_name=filename,
+                progress_callback=progress_callback,
+            )
+
             message = await self.client.send_file(
                 self.channel,
-                file_path,
+                uploaded_file,
                 caption=filename,
+                file_size=file_size,
                 force_document=True,
-                progress_callback=progress_callback,
                 attributes=[
                     DocumentAttributeFilename(filename)
                 ],
@@ -428,36 +443,32 @@ class TelegramChannelStorage:
 
         return message
 
-    async def download_message_to_path(
+    async def send_stored_message_to_user(
         self,
         message: TelethonMessage,
-        file_path: Path,
-    ) -> Path | None:
-        if self.client is None:
+        user_id: int,
+    ) -> None:
+        if self.client is None or self.channel is None:
             raise TelegramStorageError(
                 "Telethon storage is not connected."
             )
 
         if getattr(message, "file", None) is None:
-            return None
+            raise TelegramStorageError(
+                "The stored message does not contain a file."
+            )
 
         try:
-            downloaded_path = await self.client.download_media(
+            await self.client.send_message(
+                user_id,
                 message,
-                file=str(file_path),
             )
 
         except Exception as error:
             raise TelegramStorageError(
-                "Telethon file download failed "
+                "Telethon could not deliver the stored file "
                 f"({type(error).__name__})."
             ) from None
-
-        return (
-            Path(downloaded_path)
-            if isinstance(downloaded_path, str)
-            else None
-        )
 
     async def close(self) -> None:
         if (

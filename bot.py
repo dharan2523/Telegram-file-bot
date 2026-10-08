@@ -1,15 +1,13 @@
 import asyncio
 import logging
-import tempfile
 import traceback
-from pathlib import Path
 
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from config import BOT_TOKEN, DOWNLOAD_DIR, MAX_STORAGE_FILE_BYTES, MAX_UPLOAD_BYTES, UPLOAD_TIMEOUT
+from config import BOT_TOKEN, MAX_STORAGE_FILE_BYTES, MAX_UPLOAD_BYTES, UPLOAD_TIMEOUT
 from downloader import DownloadTooLargeError, download_file, validate_http_url
 from health_server import start_health_server
 from telethon_storage import TelegramChannelStorage, TelegramStorageError
@@ -243,45 +241,22 @@ async def handle_file_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("⚠️ This file is no longer available.")
         return
 
-    stored_file = getattr(message, "file", None)
-    if stored_file is None:
+    if getattr(message, "file", None) is None:
         await query.edit_message_text("⚠️ This file is no longer available.")
         return
 
-    filename = (
-        getattr(stored_file, "name", None)
-        or getattr(message, "text", None)
-        or "stored_file"
-    )
-    file_size = getattr(stored_file, "size", None)
-    if isinstance(file_size, int) and file_size > MAX_UPLOAD_BYTES:
-        await query.edit_message_text(
-            "⚠️ This file is stored, but exceeds Telegram Cloud Bot API's 50 MB send limit."
-        )
-        return
-
     try:
-        DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="storage_", dir=DOWNLOAD_DIR) as temp_dir:
-            file_path = Path(temp_dir) / "stored_file"
-            downloaded_path = await storage.download_message_to_path(message, file_path)
-            if downloaded_path is None:
-                await query.edit_message_text("⚠️ This file is no longer available.")
-                return
-            if downloaded_path.stat().st_size > MAX_UPLOAD_BYTES:
-                await query.edit_message_text(
-                    "⚠️ This file is stored, but exceeds Telegram Cloud Bot API's 50 MB send limit."
-                )
-                return
-            await context.bot.send_document(
-                chat_id=query.from_user.id,
-                document=downloaded_path,
-                filename=filename,
-            )
+        await storage.send_stored_message_to_user(
+            message,
+            query.from_user.id,
+        )
         await query.edit_message_text("✅ File sent.")
     except TelegramStorageError as error:
-        logger.error("Stored-file download failed (%s)", type(error).__name__)
-        await query.edit_message_text("⚠️ Unable to download that file from storage.")
+        logger.error("Stored-file delivery failed (%s)", type(error).__name__)
+        await query.edit_message_text(
+            "⚠️ The storage account could not message you. "
+            "Ensure it can reach your Telegram account, then try again."
+        )
     except TelegramError as error:
         logger.error("Stored-file send failed (%s)", type(error).__name__)
         await query.edit_message_text("⚠️ Telegram could not send that file to you.")
