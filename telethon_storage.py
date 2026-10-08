@@ -11,6 +11,7 @@ from telethon.tl.types import Channel, DocumentAttributeFilename
 
 from config import API_HASH, API_ID, BASE_DIR, CHANNEL_ID
 
+
 logger = logging.getLogger(__name__)
 
 SESSION_DIR = BASE_DIR / "sessions"
@@ -29,18 +30,18 @@ def restore_session_from_environment() -> None:
     Local development continues to use the existing session file
     when this environment variable is not present.
     """
-    TELEGRAM_SESSION_BASE64 = os.getenv("TELEGRAM_SESSION_BASE64")
+    session_base64 = os.getenv("TELEGRAM_SESSION_BASE64")
 
-    if TELEGRAM_SESSION_BASE64 is None:
+    if session_base64 is None:
         logger.info("TELEGRAM_SESSION_BASE64 is NOT set.")
         return
 
     logger.info(
         "TELEGRAM_SESSION_BASE64 is set. Length=%s",
-        len(TELEGRAM_SESSION_BASE64),
+        len(session_base64),
     )
 
-    if not TELEGRAM_SESSION_BASE64:
+    if not session_base64:
         return
 
     session_file = Path(f"{SESSION_PATH}.session")
@@ -49,9 +50,10 @@ def restore_session_from_environment() -> None:
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
         session_bytes = base64.b64decode(
-            TELEGRAM_SESSION_BASE64,
+            session_base64,
             validate=True,
         )
+
         logger.info(
             "Decoded Telethon session size=%s bytes",
             len(session_bytes),
@@ -118,6 +120,10 @@ class TelegramChannelStorage:
             str(SESSION_PATH),
             api_id,
             API_HASH,
+            # Keep the connection stable for hosted environments.
+            connection_retries=5,
+            retry_delay=2,
+            auto_reconnect=True,
         )
 
         try:
@@ -159,12 +165,30 @@ class TelegramChannelStorage:
         file_path: Path,
         filename: str,
     ) -> int:
+        """
+        Upload a local file to the Telegram storage channel.
+
+        Uses Telethon's file upload directly from disk.
+        The file is not loaded completely into RAM.
+        """
+
         if self.client is None or self.channel is None:
             raise TelegramStorageError(
                 "Telethon storage is not connected."
             )
 
+        if not file_path.exists():
+            raise TelegramStorageError(
+                f"File not found: {file_path}"
+            )
+
         file_size = file_path.stat().st_size
+
+        if file_size <= 0:
+            raise TelegramStorageError(
+                "Cannot upload an empty file."
+            )
+
         start_time = time.monotonic()
         last_log_time = start_time
 
@@ -182,7 +206,10 @@ class TelegramChannelStorage:
             nonlocal last_log_time
 
             now = time.monotonic()
-            elapsed = max(now - start_time, 0.1)
+            elapsed = max(
+                now - start_time,
+                0.1,
+            )
 
             percent = (
                 sent_bytes / total_bytes * 100.0
@@ -190,7 +217,11 @@ class TelegramChannelStorage:
                 else 0.0
             )
 
-            speed = sent_bytes / elapsed if elapsed else 0.0
+            speed = (
+                sent_bytes / elapsed
+                if elapsed > 0
+                else 0.0
+            )
 
             remaining = max(
                 total_bytes - sent_bytes,
@@ -203,7 +234,12 @@ class TelegramChannelStorage:
                 else 0.0
             )
 
-            if now - last_log_time >= 5 or sent_bytes >= total_bytes:
+            # Log every 10 seconds instead of every 5 seconds.
+            # This keeps logging overhead very low.
+            if (
+                now - last_log_time >= 10
+                or sent_bytes >= total_bytes
+            ):
                 logger.info(
                     "Upload progress: filename=%s "
                     "sent=%s total=%s percent=%.2f "
@@ -219,6 +255,10 @@ class TelegramChannelStorage:
                 last_log_time = now
 
         try:
+            # Direct upload from disk.
+            #
+            # Telethon handles the MTProto upload internally.
+            # Do not read the complete file into memory.
             message = await self.client.send_file(
                 self.channel,
                 file_path,
@@ -235,7 +275,7 @@ class TelegramChannelStorage:
                 "Telethon upload failed: filename=%s "
                 "path=%s size_bytes=%s",
                 filename,
-                file_path,
+                str(file_path),
                 file_size,
             )
 
