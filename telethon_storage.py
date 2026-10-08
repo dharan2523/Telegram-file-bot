@@ -29,9 +29,18 @@ def restore_session_from_environment() -> None:
     Local development continues to use the existing session file
     when this environment variable is not present.
     """
-    session_base64 = os.getenv("TELEGRAM_SESSION_BASE64")
+    TELEGRAM_SESSION_BASE64 = os.getenv("TELEGRAM_SESSION_BASE64")
 
-    if not session_base64:
+    if TELEGRAM_SESSION_BASE64 is None:
+        logger.info("TELEGRAM_SESSION_BASE64 is NOT set.")
+        return
+
+    logger.info(
+        "TELEGRAM_SESSION_BASE64 is set. Length=%s",
+        len(TELEGRAM_SESSION_BASE64),
+    )
+
+    if not TELEGRAM_SESSION_BASE64:
         return
 
     session_file = Path(f"{SESSION_PATH}.session")
@@ -40,8 +49,12 @@ def restore_session_from_environment() -> None:
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
         session_bytes = base64.b64decode(
-            session_base64,
+            TELEGRAM_SESSION_BASE64,
             validate=True,
+        )
+        logger.info(
+            "Decoded Telethon session size=%s bytes",
+            len(session_bytes),
         )
 
         session_file.write_bytes(session_bytes)
