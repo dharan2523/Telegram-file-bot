@@ -11,6 +11,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 from config import BOT_TOKEN, DOWNLOAD_DIR, MAX_STORAGE_FILE_BYTES, MAX_UPLOAD_BYTES, UPLOAD_TIMEOUT
 from downloader import DownloadTooLargeError, download_file, validate_http_url
+from health_server import start_health_server
 from telethon_storage import TelegramChannelStorage, TelegramStorageError
 
 logger = logging.getLogger(__name__)
@@ -324,6 +325,8 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
     application.add_handler(CallbackQueryHandler(handle_file_callback, pattern="^file:"))
 
+    health_server = start_health_server()
+    logger.info("Health server listening on 0.0.0.0:%s", health_server.server_port)
     logger.info("Starting Telegram file bot")
     application.run_polling()
 
